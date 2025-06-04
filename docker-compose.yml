@@ -1,0 +1,26 @@
+services:
+  db:
+    image: postgres:15  # <-- changed from 13 to 15
+    environment:
+      POSTGRES_USER: devboard
+      POSTGRES_PASSWORD: devpass
+      POSTGRES_DB: devboard
+    ports:
+      - "5433:5432"  # or "5432:5432" if not conflicting
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+
+  web:
+    build: .
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=postgres://devboard:devpass@db:5432/devboard
+
+volumes:
+  postgres_data:
