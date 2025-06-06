@@ -4,3 +4,5 @@ djangorestframework-simplejwt
 psycopg2-binary
 django-cors-headers 
 django-simple-history
+channels
+channels-redis
