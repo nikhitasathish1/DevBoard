@@ -89,13 +89,21 @@ DATABASES = {
     }
 }
 
-ASGI_APPLICATION = "DevBoard.asgi.application"
+ASGI_APPLICATION = "backend.asgi.application"
 
+# CHANNEL_LAYERS = {
+#     "default": {
+#         "BACKEND": "channels_redis.core.RedisChannelLayer",
+#         "CONFIG": {
+#             "hosts": [("redis", 6379)],
+#         },
+#     },
+# }
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [("redis", 6379)],
+            "hosts": [("localhost", 6379)],  # Changed from "redis" to "localhost"
         },
     },
 }
