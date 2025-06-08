@@ -6,3 +6,4 @@ django-cors-headers
 django-simple-history
 channels
 channels-redis
+uvicorn[standard]
