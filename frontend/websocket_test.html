@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .connected { background: #d4edda; color: #155724; }
+        .disconnected { background: #f8d7da; color: #721c24; }
+        .connecting { background: #fff3cd; color: #856404; }
+        
+        input, button, select {
+            padding: 10px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover { background: #0056b3; }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        
+        #messages {
+            border: 1px solid #ddd;
+            height: 300px;
+            overflow-y: auto;
+            padding: 10px;
+            background: #f8f9fa;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .message {
+            margin: 5px 0;
+            padding: 5px;
+            border-left: 3px solid #007bff;
+            background: white;
+        }
+        .sent { border-left-color: #28a745; }
+        .received { border-left-color: #007bff; }
+        .error { border-left-color: #dc3545; }
+        
+        .event-controls {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 15px 0;
+        }
+        
+        .event-type {
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 WebSocket Board Event Test</h1>
+        
+        <div id="status" class="status disconnected">
+            ❌ Disconnected
+        </div>
+        
+        <div>
+            <input type="text" id="wsUrl" value="ws://127.0.0.1:8000/ws/boards/1/" style="width: 300px;">
+            <button id="connectBtn" onclick="connect()">Connect</button>
+            <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+        </div>
+        
+        <div class="event-controls">
+            <h4>📋 Send Board Events:</h4>
+            <div class="event-type">
+                <label>Event Type:</label>
+                <select id="eventType">
+                    <option value="card.created">Card Created</option>
+                    <option value="card.updated">Card Updated</option>
+                    <option value="card.deleted">Card Deleted</option>
+                    <option value="card.moved">Card Moved</option>
+                    <option value="column.created">Column Created</option>
+                    <option value="column.updated">Column Updated</option>
+                    <option value="board.updated">Board Updated</option>
+                </select>
+            </div>
+            <div>
+                <input type="text" id="messageInput" placeholder="Enter card title or event data..." style="width: 300px;" disabled>
+                <button id="sendBtn" onclick="sendMessage()" disabled>Send Event</button>
+            </div>
+        </div>
+        
+        <div>
+            <h3>📨 Messages:</h3>
+            <div id="messages"></div>
+            <button onclick="clearMessages()">Clear Messages</button>
+        </div>
+    </div>
+
+    <script>
+        let socket = null;
+        const statusDiv = document.getElementById('status');
+        const messagesDiv = document.getElementById('messages');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const sendBtn = document.getElementById('sendBtn');
+        const messageInput = document.getElementById('messageInput');
+        const wsUrlInput = document.getElementById('wsUrl');
+        const eventTypeSelect = document.getElementById('eventType');
+        
+        function addMessage(message, type = 'info') {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            messageDiv.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong> - ${message}`;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        function updateStatus(status, className) {
+            statusDiv.textContent = status;
+            statusDiv.className = `status ${className}`;
+        }
+        
+        function generateEventPayload(eventType, message) {
+            const cardId = Math.floor(Math.random() * 1000);
+            const columnId = Math.floor(Math.random() * 5) + 1;
+            
+            switch(eventType) {
+                case 'card.created':
+                    return {
+                        card_id: cardId,
+                        column_id: columnId,
+                        title: message || "New Card",
+                        description: "Created via WebSocket test",
+                        position: 0
+                    };
+                case 'card.updated':
+                    return {
+                        card_id: cardId,
+                        title: message || "Updated Card",
+                        description: "Updated via WebSocket test"
+                    };
+                case 'card.deleted':
+                    return {
+                        card_id: cardId
+                    };
+                case 'card.moved':
+                    return {
+                        card_id: cardId,
+                        from_column_id: columnId,
+                        to_column_id: columnId + 1,
+                        new_position: 1
+                    };
+                case 'column.created':
+                    return {
+                        column_id: columnId,
+                        title: message || "New Column",
+                        position: 0
+                    };
+                case 'column.updated':
+                    return {
+                        column_id: columnId,
+                        title: message || "Updated Column"
+                    };
+                case 'board.updated':
+                    return {
+                        board_id: 1,
+                        title: message || "Updated Board"
+                    };
+                default:
+                    return { message: message };
+            }
+        }
+        
+        function connect() {
+            const url = wsUrlInput.value;
+            
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                addMessage('Already connected!', 'error');
+                return;
+            }
+            
+            addMessage(`Attempting to connect to: ${url}`, 'info');
+            updateStatus('🔄 Connecting...', 'connecting');
+            
+            socket = new WebSocket(url);
+            
+            socket.onopen = function(event) {
+                addMessage('✅ WebSocket connection established!', 'received');
+                updateStatus('✅ Connected', 'connected');
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                sendBtn.disabled = false;
+                messageInput.disabled = false;
+                messageInput.focus();
+                
+                // Send a test board event
+                const testMessage = {
+                    type: "card.created",
+                    payload: {
+                        card_id: Math.floor(Math.random() * 1000),
+                        column_id: 3,
+                        title: "Add WebSocket support",
+                        description: "Connection test card",
+                        position: 0
+                    }
+                };
+                socket.send(JSON.stringify(testMessage));
+                addMessage(`📤 Sent connection test: ${JSON.stringify(testMessage, null, 2)}`, 'sent');
+            };
+            
+            socket.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    addMessage(`📥 Received: ${JSON.stringify(data, null, 2)}`, 'received');
+                } catch (e) {
+                    addMessage(`📥 Received: ${event.data}`, 'received');
+                }
+            };
+            
+            socket.onclose = function(event) {
+                addMessage(`❌ Connection closed. Code: ${event.code}, Reason: ${event.reason || 'No reason provided'}`, 'error');
+                updateStatus('❌ Disconnected', 'disconnected');
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                sendBtn.disabled = true;
+                messageInput.disabled = true;
+            };
+            
+            socket.onerror = function(error) {
+                addMessage(`🚫 WebSocket error: ${error}`, 'error');
+                console.error('WebSocket error:', error);
+            };
+        }
+        
+        function disconnect() {
+            if (socket) {
+                socket.close();
+                addMessage('Disconnecting...', 'info');
+            }
+        }
+        
+        function sendMessage() {
+            const message = messageInput.value.trim();
+            const eventType = eventTypeSelect.value;
+            
+            if (!message && ['card.created', 'card.updated', 'column.created', 'column.updated', 'board.updated'].includes(eventType)) {
+                addMessage('Please enter a title or description for this event!', 'error');
+                return;
+            }
+            
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                const messageObj = {
+                    type: eventType,
+                    payload: generateEventPayload(eventType, message)
+                };
+                
+                socket.send(JSON.stringify(messageObj));
+                addMessage(`📤 Sent ${eventType}: ${JSON.stringify(messageObj, null, 2)}`, 'sent');
+                messageInput.value = '';
+            } else {
+                addMessage('Not connected to WebSocket!', 'error');
+            }
+        }
+        
+        function clearMessages() {
+            messagesDiv.innerHTML = '';
+        }
+        
+        // Allow Enter key to send messages
+        messageInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+        
+        // Update placeholder text based on event type
+        eventTypeSelect.addEventListener('change', function() {
+            const eventType = this.value;
+            switch(eventType) {
+                case 'card.created':
+                case 'card.updated':
+                    messageInput.placeholder = "Enter card title...";
+                    break;
+                case 'column.created':
+                case 'column.updated':
+                    messageInput.placeholder = "Enter column title...";
+                    break;
+                case 'board.updated':
+                    messageInput.placeholder = "Enter board title...";
+                    break;
+                case 'card.deleted':
+                case 'card.moved':
+                    messageInput.placeholder = "No input needed for this event";
+                    break;
+                default:
+                    messageInput.placeholder = "Enter event data...";
+            }
+        });
+        
+        // Auto-focus URL input
+        wsUrlInput.focus();
+    </script>
+</body>
+</html>
