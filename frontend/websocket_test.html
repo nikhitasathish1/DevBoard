@@ -3,6 +3,405 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Test - Board Events</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .connected { background: #d4edda; color: #155724; }
+        .disconnected { background: #f8d7da; color: #721c24; }
+        .connecting { background: #fff3cd; color: #856404; }
+        
+        input, button, select, textarea {
+            padding: 10px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover { background: #0056b3; }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        
+        .action-buttons {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin: 15px 0;
+        }
+        
+        .action-btn {
+            padding: 15px;
+            font-size: 14px;
+            text-align: center;
+        }
+        
+        .create-btn { background: #28a745; }
+        .update-btn { background: #ffc107; color: #212529; }
+        .delete-btn { background: #dc3545; }
+        
+        #messages {
+            border: 1px solid #ddd;
+            height: 400px;
+            overflow-y: auto;
+            padding: 10px;
+            background: #f8f9fa;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .message {
+            margin: 5px 0;
+            padding: 8px;
+            border-left: 3px solid #007bff;
+            background: white;
+            border-radius: 4px;
+        }
+        .sent { border-left-color: #28a745; }
+        .received { border-left-color: #007bff; }
+        .error { border-left-color: #dc3545; }
+        
+        .form-group {
+            margin: 10px 0;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        .json-input {
+            width: 100%;
+            height: 100px;
+            font-family: monospace;
+            font-size: 12px;
+            resize: vertical;
+        }
+        
+        .quick-actions {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 15px 0;
+            border: 1px solid #dee2e6;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 WebSocket Board Event Test</h1>
+        
+        <div id="status" class="status disconnected">
+            ❌ Disconnected
+        </div>
+        
+        <div>
+            <input type="text" id="wsUrl" value="ws://127.0.0.1:8000/ws/boards/1/" style="width: 400px;">
+            <button id="connectBtn" onclick="connect()">Connect</button>
+            <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+        </div>
+        
+        <div class="quick-actions">
+            <h4>🚀 Quick Actions (Real Database Operations):</h4>
+            <div class="action-buttons">
+                <button class="action-btn create-btn" onclick="createCard()" disabled id="createCardBtn">
+                    ➕ Create Card
+                </button>
+                <button class="action-btn update-btn" onclick="updateCard()" disabled id="updateCardBtn">
+                    ✏️ Update Card
+                </button>
+                <button class="action-btn delete-btn" onclick="deleteCard()" disabled id="deleteCardBtn">
+                    🗑️ Delete Card
+                </button>
+            </div>
+            
+            <div class="form-group">
+                <label>Card Title:</label>
+                <input type="text" id="cardTitle" placeholder="Enter card title..." disabled>
+            </div>
+            <div class="form-group">
+                <label>Column ID:</label>
+                <input type="number" id="columnId" value="1" min="1" disabled>
+            </div>
+            <div class="form-group">
+                <label>Assignee ID (optional):</label>
+                <input type="number" id="assigneeId" placeholder="User ID" disabled>
+            </div>
+            <div class="form-group">
+                <label>Card ID (for update/delete):</label>
+                <input type="number" id="cardId" placeholder="Card ID" disabled>
+            </div>
+        </div>
+        
+        <div class="quick-actions">
+            <h4>🛠️ Custom JSON Payload:</h4>
+            <div class="form-group">
+                <label>JSON Payload:</label>
+                <textarea id="jsonPayload" class="json-input" placeholder='{"type": "card.created", "payload": {"title": "Live DB card", "column_id": 1, "assignee": 1}}' disabled></textarea>
+            </div>
+            <button onclick="sendCustomPayload()" disabled id="sendCustomBtn">Send Custom JSON</button>
+        </div>
+        
+        <div>
+            <h3>📨 Messages:</h3>
+            <div id="messages"></div>
+            <button onclick="clearMessages()">Clear Messages</button>
+        </div>
+    </div>
+
+    <script>
+        let socket = null;
+        const statusDiv = document.getElementById('status');
+        const messagesDiv = document.getElementById('messages');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        
+        // Control elements
+        const controls = [
+            'createCardBtn', 'updateCardBtn', 'deleteCardBtn', 'sendCustomBtn',
+            'cardTitle', 'columnId', 'assigneeId', 'cardId', 'jsonPayload'
+        ];
+        
+        function addMessage(message, type = 'info') {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            const timestamp = new Date().toLocaleTimeString();
+            messageDiv.innerHTML = `<strong>${timestamp}</strong> - ${message}`;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        function updateStatus(status, className) {
+            statusDiv.textContent = status;
+            statusDiv.className = `status ${className}`;
+        }
+        
+        function toggleControls(enabled) {
+            controls.forEach(id => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.disabled = !enabled;
+                }
+            });
+        }
+        
+        function connect() {
+            const url = document.getElementById('wsUrl').value;
+            
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                addMessage('Already connected!', 'error');
+                return;
+            }
+            
+            addMessage(`Attempting to connect to: ${url}`, 'info');
+            updateStatus('🔄 Connecting...', 'connecting');
+            
+            socket = new WebSocket(url);
+            
+            socket.onopen = function(event) {
+                addMessage('✅ WebSocket connection established!', 'received');
+                updateStatus('✅ Connected', 'connected');
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                toggleControls(true);
+            };
+            
+            socket.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    addMessage(`📥 Received: <pre>${JSON.stringify(data, null, 2)}</pre>`, 'received');
+                } catch (e) {
+                    addMessage(`📥 Received: ${event.data}`, 'received');
+                }
+            };
+            
+            socket.onclose = function(event) {
+                addMessage(`❌ Connection closed. Code: ${event.code}, Reason: ${event.reason || 'No reason provided'}`, 'error');
+                updateStatus('❌ Disconnected', 'disconnected');
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                toggleControls(false);
+            };
+            
+            socket.onerror = function(error) {
+                addMessage(`🚫 WebSocket error: ${error}`, 'error');
+                console.error('WebSocket error:', error);
+            };
+        }
+        
+        function disconnect() {
+            if (socket) {
+                socket.close();
+                addMessage('Disconnecting...', 'info');
+            }
+        }
+        
+        function sendMessage(messageObj) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify(messageObj));
+                addMessage(`📤 Sent: <pre>${JSON.stringify(messageObj, null, 2)}</pre>`, 'sent');
+                return true;
+            } else {
+                addMessage('Not connected to WebSocket!', 'error');
+                return false;
+            }
+        }
+        
+        function createCard() {
+            const title = document.getElementById('cardTitle').value.trim();
+            const columnId = parseInt(document.getElementById('columnId').value);
+            const assigneeId = document.getElementById('assigneeId').value.trim();
+            
+            if (!title) {
+                addMessage('Please enter a card title!', 'error');
+                return;
+            }
+            
+            const payload = {
+                title: title,
+                column_id: columnId
+            };
+            
+            if (assigneeId) {
+                payload.assignee = parseInt(assigneeId);
+            }
+            
+            const message = {
+                type: "card.created",
+                payload: payload
+            };
+            
+            if (sendMessage(message)) {
+                document.getElementById('cardTitle').value = '';
+                document.getElementById('assigneeId').value = '';
+            }
+        }
+        
+        function updateCard() {
+            const cardId = document.getElementById('cardId').value.trim();
+            const title = document.getElementById('cardTitle').value.trim();
+            const columnId = parseInt(document.getElementById('columnId').value);
+            const assigneeId = document.getElementById('assigneeId').value.trim();
+            
+            if (!cardId) {
+                addMessage('Please enter a card ID to update!', 'error');
+                return;
+            }
+            
+            const payload = {
+                id: parseInt(cardId)
+            };
+            
+            if (title) payload.title = title;
+            if (columnId) payload.column_id = columnId;
+            if (assigneeId) payload.assignee = parseInt(assigneeId);
+            
+            const message = {
+                type: "card.updated",
+                payload: payload
+            };
+            
+            sendMessage(message);
+        }
+        
+        function deleteCard() {
+            const cardId = document.getElementById('cardId').value.trim();
+            
+            if (!cardId) {
+                addMessage('Please enter a card ID to delete!', 'error');
+                return;
+            }
+            
+            const message = {
+                type: "card.deleted",
+                payload: {
+                    id: parseInt(cardId)
+                }
+            };
+            
+            if (sendMessage(message)) {
+                document.getElementById('cardId').value = '';
+            }
+        }
+        
+        function sendCustomPayload() {
+            const jsonText = document.getElementById('jsonPayload').value.trim();
+            
+            if (!jsonText) {
+                addMessage('Please enter a JSON payload!', 'error');
+                return;
+            }
+            
+            try {
+                const messageObj = JSON.parse(jsonText);
+                sendMessage(messageObj);
+                document.getElementById('jsonPayload').value = '';
+            } catch (e) {
+                addMessage(`Invalid JSON: ${e.message}`, 'error');
+            }
+        }
+        
+        function clearMessages() {
+            messagesDiv.innerHTML = '';
+        }
+        
+        // Load example payloads
+        function loadExamplePayload(type) {
+            const examples = {
+                create: '{"type": "card.created", "payload": {"title": "Live DB card", "column_id": 1, "assignee": 1}}',
+                update: '{"type": "card.updated", "payload": {"id": 42, "title": "Updated card title", "column_id": 2}}',
+                delete: '{"type": "card.deleted", "payload": {"id": 42}}'
+            };
+            document.getElementById('jsonPayload').value = examples[type] || '';
+        }
+        
+        // Add example buttons
+        document.addEventListener('DOMContentLoaded', function() {
+            const customSection = document.querySelector('.quick-actions:last-of-type');
+            const exampleButtons = document.createElement('div');
+            exampleButtons.innerHTML = `
+                <div style="margin: 10px 0;">
+                    <strong>Examples:</strong>
+                    <button type="button" onclick="loadExamplePayload('create')" style="margin: 2px; padding: 5px 10px; font-size: 12px;">Create</button>
+                    <button type="button" onclick="loadExamplePayload('update')" style="margin: 2px; padding: 5px 10px; font-size: 12px;">Update</button>
+                    <button type="button" onclick="loadExamplePayload('delete')" style="margin: 2px; padding: 5px 10px; font-size: 12px;">Delete</button>
+                </div>
+            `;
+            customSection.insertBefore(exampleButtons, customSection.lastElementChild);
+        });
+        
+        // Auto-focus URL input
+        document.getElementById('wsUrl').focus();
+    </script>
+</body>
+</html>
+
+<!-- <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WebSocket Test</title>
     <style>
         body {
@@ -322,4 +721,4 @@
         wsUrlInput.focus();
     </script>
 </body>
-</html>
+</html> -->
