@@ -3,6 +3,663 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced WebSocket Test - Board Events with JWT Auth</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        .connected { background: #d4edda; color: #155724; }
+        .disconnected { background: #f8d7da; color: #721c24; }
+        .connecting { background: #fff3cd; color: #856404; }
+        
+        input, button, select, textarea {
+            padding: 10px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            cursor: pointer;
+            border: none;
+        }
+        button:hover { background: #0056b3; }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        
+        .action-buttons {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 10px;
+            margin: 15px 0;
+        }
+        
+        .action-btn {
+            padding: 15px;
+            font-size: 14px;
+            text-align: center;
+        }
+        
+        .create-btn { background: #28a745; }
+        .update-btn { background: #ffc107; color: #212529; }
+        .delete-btn { background: #dc3545; }
+        .column-btn { background: #6f42c1; }
+        .board-btn { background: #fd7e14; }
+        
+        #messages {
+            border: 1px solid #ddd;
+            height: 400px;
+            overflow-y: auto;
+            padding: 10px;
+            background: #f8f9fa;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .message {
+            margin: 5px 0;
+            padding: 8px;
+            border-left: 3px solid #007bff;
+            background: white;
+            border-radius: 4px;
+        }
+        .sent { border-left-color: #28a745; }
+        .received { border-left-color: #007bff; }
+        .error { border-left-color: #dc3545; }
+        .success { border-left-color: #28a745; }
+        
+        .form-group {
+            margin: 10px 0;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        .json-input {
+            width: 100%;
+            height: 100px;
+            font-family: monospace;
+            font-size: 12px;
+            resize: vertical;
+        }
+        
+        .section {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 15px 0;
+            border: 1px solid #dee2e6;
+        }
+        
+        .auth-section {
+            background: #fff3cd;
+            border-color: #ffeaa7;
+        }
+        
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        
+        .grid-3 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 10px;
+        }
+        
+        .user-info {
+            background: #d1ecf1;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+
+        pre {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 Enhanced WebSocket Board Event Test</h1>
+        
+        <div class="section auth-section">
+            <h4>🔐 Authentication</h4>
+            <div class="form-group">
+                <label>JWT Token:</label>
+                <input type="password" id="jwtToken" placeholder="Enter your JWT token here..." style="width: 100%;">
+                <small>Get this from your login API or Django admin</small>
+            </div>
+        </div>
+        
+        <div id="status" class="status disconnected">
+            ❌ Disconnected
+        </div>
+        
+        <div id="userInfo" class="user-info" style="display: none;">
+            <strong>Connected as:</strong> <span id="userDetails"></span>
+        </div>
+        
+        <div>
+            <input type="text" id="wsUrl" value="ws://127.0.0.1:8000/ws/boards/1/" style="width: 400px;">
+            <button id="connectBtn" onclick="connect()">Connect</button>
+            <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+        </div>
+        
+        <div class="grid-2">
+            <!-- Card Operations -->
+            <div class="section">
+                <h4>📋 Card Operations</h4>
+                <div class="action-buttons">
+                    <button class="action-btn create-btn" onclick="createCard()" disabled id="createCardBtn">
+                        ➕ Create Card
+                    </button>
+                    <button class="action-btn update-btn" onclick="updateCard()" disabled id="updateCardBtn">
+                        ✏️ Update Card
+                    </button>
+                    <button class="action-btn delete-btn" onclick="deleteCard()" disabled id="deleteCardBtn">
+                        🗑️ Delete Card
+                    </button>
+                </div>
+                
+                <div class="form-group">
+                    <label>Card Title:</label>
+                    <input type="text" id="cardTitle" placeholder="Enter card title..." disabled>
+                </div>
+                <div class="form-group">
+                    <label>Card Description:</label>
+                    <input type="text" id="cardDescription" placeholder="Enter card description..." disabled>
+                </div>
+                <div class="grid-3">
+                    <div class="form-group">
+                        <label>Column ID:</label>
+                        <input type="number" id="columnId" value="1" min="1" disabled>
+                    </div>
+                    <div class="form-group">
+                        <label>Assignee ID:</label>
+                        <input type="number" id="assigneeId" placeholder="User ID" disabled>
+                    </div>
+                    <div class="form-group">
+                        <label>Card ID:</label>
+                        <input type="number" id="cardId" placeholder="Card ID" disabled>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Column Operations -->
+            <div class="section">
+                <h4>📊 Column Operations</h4>
+                <div class="action-buttons">
+                    <button class="action-btn create-btn" onclick="createColumn()" disabled id="createColumnBtn">
+                        ➕ Create Column
+                    </button>
+                    <button class="action-btn update-btn" onclick="updateColumn()" disabled id="updateColumnBtn">
+                        ✏️ Update Column
+                    </button>
+                    <button class="action-btn delete-btn" onclick="deleteColumn()" disabled id="deleteColumnBtn">
+                        🗑️ Delete Column
+                    </button>
+                </div>
+                
+                <div class="form-group">
+                    <label>Column Title:</label>
+                    <input type="text" id="columnTitle" placeholder="Enter column title..." disabled>
+                </div>
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label>Column ID:</label>
+                        <input type="number" id="columnIdForOps" placeholder="Column ID" disabled>
+                    </div>
+                    <div class="form-group">
+                        <label>Position:</label>
+                        <input type="number" id="columnPosition" value="0" min="0" disabled>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Board Operations -->
+        <div class="section">
+            <h4>🏢 Board Operations</h4>
+            <div class="action-buttons">
+                <button class="action-btn board-btn" onclick="updateBoard()" disabled id="updateBoardBtn">
+                    ✏️ Update Board
+                </button>
+            </div>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>Board Title:</label>
+                    <input type="text" id="boardTitle" placeholder="Enter board title..." disabled>
+                </div>
+                <div class="form-group">
+                    <label>Board Description:</label>
+                    <input type="text" id="boardDescription" placeholder="Enter board description..." disabled>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Custom JSON -->
+        <div class="section">
+            <h4>🛠️ Custom JSON Payload</h4>
+            <div class="form-group">
+                <label>JSON Payload:</label>
+                <textarea id="jsonPayload" class="json-input" placeholder='{"type": "card.created", "payload": {"title": "Test Card", "column_id": 1}}' disabled></textarea>
+            </div>
+            <button onclick="sendCustomPayload()" disabled id="sendCustomBtn">Send Custom JSON</button>
+            
+            <div style="margin: 10px 0;">
+                <strong>Quick Examples:</strong>
+                <button type="button" onclick="loadExample('card_create')" style="margin: 2px; padding: 5px 10px; font-size: 12px;">Card Create</button>
+                <button type="button" onclick="loadExample('card_update')" style="margin: 2px; padding: 5px 10px; font-size: 12px;">Card Update</button>
+                <button type="button" onclick="loadExample('card_delete')" style="margin: 2px; padding: 5px 10px; font-size: 12px;">Card Delete</button>
+                <button type="button" onclick="loadExample('column_create')" style="margin: 2px; padding: 5px 10px; font-size: 12px;">Column Create</button>
+                <button type="button" onclick="loadExample('column_update')" style="margin: 2px; padding: 5px 10px; font-size: 12px;">Column Update</button>
+                <button type="button" onclick="loadExample('column_delete')" style="margin: 2px; padding: 5px 10px; font-size: 12px;">Column Delete</button>
+            </div>
+        </div>
+        
+        <div>
+            <h3>📨 Messages:</h3>
+            <div id="messages"></div>
+            <button onclick="clearMessages()">Clear Messages</button>
+        </div>
+    </div>
+
+    <script>
+        let socket = null;
+        let currentUser = null;
+        const statusDiv = document.getElementById('status');
+        const messagesDiv = document.getElementById('messages');
+        const userInfoDiv = document.getElementById('userInfo');
+        const userDetailsSpan = document.getElementById('userDetails');
+        
+        // Control elements
+        const controls = [
+            'createCardBtn', 'updateCardBtn', 'deleteCardBtn', 'sendCustomBtn',
+            'createColumnBtn', 'updateColumnBtn', 'deleteColumnBtn', 'updateBoardBtn',
+            'cardTitle', 'cardDescription', 'columnId', 'assigneeId', 'cardId', 'jsonPayload',
+            'columnTitle', 'columnIdForOps', 'columnPosition', 'boardTitle', 'boardDescription'
+        ];
+        
+        function addMessage(message, type = 'info') {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}`;
+            const timestamp = new Date().toLocaleTimeString();
+            messageDiv.innerHTML = `<strong>${timestamp}</strong> - ${message}`;
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        function updateStatus(status, className) {
+            statusDiv.textContent = status;
+            statusDiv.className = `status ${className}`;
+        }
+        
+        function toggleControls(enabled) {
+            controls.forEach(id => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.disabled = !enabled;
+                }
+            });
+        }
+        
+        function connect() {
+            const url = document.getElementById('wsUrl').value;
+            const token = document.getElementById('jwtToken').value.trim();
+            
+            if (!token) {
+                addMessage('Please enter a valid JWT token!', 'error');
+                return;
+            }
+            
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                addMessage('Already connected!', 'error');
+                return;
+            }
+            
+            // Add token to WebSocket URL
+            const wsUrlWithToken = `${url}?token=${encodeURIComponent(token)}`;
+            
+            addMessage(`Attempting to connect to: ${url}`, 'info');
+            addMessage('🔐 Using JWT authentication...', 'info');
+            updateStatus('🔄 Connecting...', 'connecting');
+            
+            socket = new WebSocket(wsUrlWithToken);
+            
+            socket.onopen = function(event) {
+                addMessage('✅ WebSocket connection established!', 'received');
+                updateStatus('✅ Connected & Authenticated', 'connected');
+                document.getElementById('connectBtn').disabled = true;
+                document.getElementById('disconnectBtn').disabled = false;
+                toggleControls(true);
+            };
+            
+            socket.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    // Handle connection established message
+                    if (data.type === 'connection.established') {
+                        currentUser = data.payload;
+                        userDetailsSpan.textContent = `${currentUser.username} (ID: ${currentUser.user_id}) - Board: ${currentUser.board_id}`;
+                        userInfoDiv.style.display = 'block';
+                        addMessage(`🎉 Authenticated as: ${currentUser.username}`, 'success');
+                    }
+                    
+                    addMessage(`📥 Received: <pre>${JSON.stringify(data, null, 2)}</pre>`, 'received');
+                } catch (e) {
+                    addMessage(`📥 Received (raw): ${event.data}`, 'received');
+                }
+            };
+            
+            socket.onclose = function(event) {
+                addMessage(`❌ WebSocket closed: Code ${event.code}, Reason: ${event.reason || 'No reason'}`, 'error');
+                updateStatus('❌ Disconnected', 'disconnected');
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('disconnectBtn').disabled = true;
+                toggleControls(false);
+            };
+            
+            socket.onerror = function(error) {
+                addMessage(`❌ WebSocket error: ${error}`, 'error');
+                updateStatus('❌ Connection Error', 'disconnected');
+            };
+        }
+        
+        function disconnect() {
+            if (socket) {
+                socket.close();
+                addMessage('🔌 Disconnecting...', 'info');
+            }
+        }
+        
+        function sendMessage(message) {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                addMessage('❌ Not connected to WebSocket!', 'error');
+                return false;
+            }
+            
+            try {
+                const messageStr = JSON.stringify(message);
+                socket.send(messageStr);
+                addMessage(`📤 Sent: <pre>${JSON.stringify(message, null, 2)}</pre>`, 'sent');
+                return true;
+            } catch (e) {
+                addMessage(`❌ Error sending message: ${e.message}`, 'error');
+                return false;
+            }
+        }
+        
+        // Card Operations
+        function createCard() {
+            const title = document.getElementById('cardTitle').value.trim();
+            const description = document.getElementById('cardDescription').value.trim();
+            const columnId = parseInt(document.getElementById('columnId').value);
+            const assigneeId = document.getElementById('assigneeId').value.trim();
+            
+            if (!title) {
+                addMessage('❌ Card title is required!', 'error');
+                return;
+            }
+            
+            const payload = {
+                title: title,
+                column_id: columnId
+            };
+            
+            if (description) payload.description = description;
+            if (assigneeId) payload.assignee_id = parseInt(assigneeId);
+            
+            sendMessage({
+                type: 'card.created',
+                payload: payload
+            });
+        }
+        
+        function updateCard() {
+            const cardId = parseInt(document.getElementById('cardId').value);
+            const title = document.getElementById('cardTitle').value.trim();
+            const description = document.getElementById('cardDescription').value.trim();
+            const columnId = parseInt(document.getElementById('columnId').value);
+            const assigneeId = document.getElementById('assigneeId').value.trim();
+            
+            if (!cardId) {
+                addMessage('❌ Card ID is required for updates!', 'error');
+                return;
+            }
+            
+            const payload = { id: cardId };
+            
+            if (title) payload.title = title;
+            if (description) payload.description = description;
+            if (columnId) payload.column_id = columnId;
+            if (assigneeId) payload.assignee_id = parseInt(assigneeId);
+            
+            sendMessage({
+                type: 'card.updated',
+                payload: payload
+            });
+        }
+        
+        function deleteCard() {
+            const cardId = parseInt(document.getElementById('cardId').value);
+            
+            if (!cardId) {
+                addMessage('❌ Card ID is required for deletion!', 'error');
+                return;
+            }
+            
+            sendMessage({
+                type: 'card.deleted',
+                payload: { id: cardId }
+            });
+        }
+        
+        // Column Operations
+        function createColumn() {
+            const title = document.getElementById('columnTitle').value.trim();
+            const position = parseInt(document.getElementById('columnPosition').value);
+            
+            if (!title) {
+                addMessage('❌ Column title is required!', 'error');
+                return;
+            }
+            
+            sendMessage({
+                type: 'column.created',
+                payload: {
+                    title: title,
+                    position: position || 0
+                }
+            });
+        }
+        
+        function updateColumn() {
+            const columnId = parseInt(document.getElementById('columnIdForOps').value);
+            const title = document.getElementById('columnTitle').value.trim();
+            const position = document.getElementById('columnPosition').value;
+            
+            if (!columnId) {
+                addMessage('❌ Column ID is required for updates!', 'error');
+                return;
+            }
+            
+            const payload = { id: columnId };
+            
+            if (title) payload.title = title;
+            if (position !== '') payload.position = parseInt(position);
+            
+            sendMessage({
+                type: 'column.updated',
+                payload: payload
+            });
+        }
+        
+        function deleteColumn() {
+            const columnId = parseInt(document.getElementById('columnIdForOps').value);
+            
+            if (!columnId) {
+                addMessage('❌ Column ID is required for deletion!', 'error');
+                return;
+            }
+            
+            if (!confirm('Are you sure you want to delete this column? This will also delete all cards in it!')) {
+                return;
+            }
+            
+            sendMessage({
+                type: 'column.deleted',
+                payload: { id: columnId }
+            });
+        }
+        
+        // Board Operations
+        function updateBoard() {
+            const title = document.getElementById('boardTitle').value.trim();
+            const description = document.getElementById('boardDescription').value.trim();
+            
+            if (!title && !description) {
+                addMessage('❌ At least one field (title or description) is required!', 'error');
+                return;
+            }
+            
+            const payload = {};
+            if (title) payload.title = title;
+            if (description) payload.description = description;
+            
+            sendMessage({
+                type: 'board.updated',
+                payload: payload
+            });
+        }
+        
+        // Custom JSON Payload
+        function sendCustomPayload() {
+            const jsonText = document.getElementById('jsonPayload').value.trim();
+            
+            if (!jsonText) {
+                addMessage('❌ JSON payload is required!', 'error');
+                return;
+            }
+            
+            try {
+                const payload = JSON.parse(jsonText);
+                sendMessage(payload);
+            } catch (e) {
+                addMessage(`❌ Invalid JSON: ${e.message}`, 'error');
+            }
+        }
+        
+        // Example JSON payloads
+        function loadExample(type) {
+            const examples = {
+                card_create: {
+                    type: 'card.created',
+                    payload: {
+                        title: 'New Task Card',
+                        description: 'This is a sample card description',
+                        column_id: 1,
+                        assignee_id: 1
+                    }
+                },
+                card_update: {
+                    type: 'card.updated',
+                    payload: {
+                        id: 1,
+                        title: 'Updated Card Title',
+                        description: 'Updated description',
+                        column_id: 2
+                    }
+                },
+                card_delete: {
+                    type: 'card.deleted',
+                    payload: {
+                        id: 1
+                    }
+                },
+                column_create: {
+                    type: 'column.created',
+                    payload: {
+                        title: 'New Column',
+                        position: 2
+                    }
+                },
+                column_update: {
+                    type: 'column.updated',
+                    payload: {
+                        id: 1,
+                        title: 'Updated Column Name',
+                        position: 1
+                    }
+                },
+                column_delete: {
+                    type: 'column.deleted',
+                    payload: {
+                        id: 1
+                    }
+                }
+            };
+            
+            if (examples[type]) {
+                document.getElementById('jsonPayload').value = JSON.stringify(examples[type], null, 2);
+            }
+        }
+        
+        function clearMessages() {
+            messagesDiv.innerHTML = '';
+        }
+        
+        // Auto-connect on page load if token is present
+        window.addEventListener('load', function() {
+            const savedToken = localStorage.getItem('jwt_token');
+            if (savedToken) {
+                document.getElementById('jwtToken').value = savedToken;
+            }
+        });
+        
+        // Save token when changed
+        document.getElementById('jwtToken').addEventListener('change', function() {
+            const token = this.value.trim();
+            if (token) {
+                localStorage.setItem('jwt_token', token);
+            } else {
+                localStorage.removeItem('jwt_token');
+            }
+        });
+    </script>
+</body>
+</html>
+<!-- <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WebSocket Test - Board Events</title>
     <style>
         body {
@@ -396,329 +1053,4 @@
     </script>
 </body>
 </html>
-
-<!-- <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebSocket Test</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            background: #f5f5f5;
-        }
-        .container {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .status {
-            padding: 10px;
-            border-radius: 4px;
-            margin: 10px 0;
-            font-weight: bold;
-        }
-        .connected { background: #d4edda; color: #155724; }
-        .disconnected { background: #f8d7da; color: #721c24; }
-        .connecting { background: #fff3cd; color: #856404; }
-        
-        input, button, select {
-            padding: 10px;
-            margin: 5px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
-        button {
-            background: #007bff;
-            color: white;
-            cursor: pointer;
-        }
-        button:hover { background: #0056b3; }
-        button:disabled {
-            background: #6c757d;
-            cursor: not-allowed;
-        }
-        
-        #messages {
-            border: 1px solid #ddd;
-            height: 300px;
-            overflow-y: auto;
-            padding: 10px;
-            background: #f8f9fa;
-            font-family: monospace;
-            font-size: 14px;
-        }
-        .message {
-            margin: 5px 0;
-            padding: 5px;
-            border-left: 3px solid #007bff;
-            background: white;
-        }
-        .sent { border-left-color: #28a745; }
-        .received { border-left-color: #007bff; }
-        .error { border-left-color: #dc3545; }
-        
-        .event-controls {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 4px;
-            margin: 15px 0;
-        }
-        
-        .event-type {
-            margin: 10px 0;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🔌 WebSocket Board Event Test</h1>
-        
-        <div id="status" class="status disconnected">
-            ❌ Disconnected
-        </div>
-        
-        <div>
-            <input type="text" id="wsUrl" value="ws://127.0.0.1:8000/ws/boards/1/" style="width: 300px;">
-            <button id="connectBtn" onclick="connect()">Connect</button>
-            <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
-        </div>
-        
-        <div class="event-controls">
-            <h4>📋 Send Board Events:</h4>
-            <div class="event-type">
-                <label>Event Type:</label>
-                <select id="eventType">
-                    <option value="card.created">Card Created</option>
-                    <option value="card.updated">Card Updated</option>
-                    <option value="card.deleted">Card Deleted</option>
-                    <option value="card.moved">Card Moved</option>
-                    <option value="column.created">Column Created</option>
-                    <option value="column.updated">Column Updated</option>
-                    <option value="board.updated">Board Updated</option>
-                </select>
-            </div>
-            <div>
-                <input type="text" id="messageInput" placeholder="Enter card title or event data..." style="width: 300px;" disabled>
-                <button id="sendBtn" onclick="sendMessage()" disabled>Send Event</button>
-            </div>
-        </div>
-        
-        <div>
-            <h3>📨 Messages:</h3>
-            <div id="messages"></div>
-            <button onclick="clearMessages()">Clear Messages</button>
-        </div>
-    </div>
-
-    <script>
-        let socket = null;
-        const statusDiv = document.getElementById('status');
-        const messagesDiv = document.getElementById('messages');
-        const connectBtn = document.getElementById('connectBtn');
-        const disconnectBtn = document.getElementById('disconnectBtn');
-        const sendBtn = document.getElementById('sendBtn');
-        const messageInput = document.getElementById('messageInput');
-        const wsUrlInput = document.getElementById('wsUrl');
-        const eventTypeSelect = document.getElementById('eventType');
-        
-        function addMessage(message, type = 'info') {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${type}`;
-            messageDiv.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong> - ${message}`;
-            messagesDiv.appendChild(messageDiv);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
-        }
-        
-        function updateStatus(status, className) {
-            statusDiv.textContent = status;
-            statusDiv.className = `status ${className}`;
-        }
-        
-        function generateEventPayload(eventType, message) {
-            const cardId = Math.floor(Math.random() * 1000);
-            const columnId = Math.floor(Math.random() * 5) + 1;
-            
-            switch(eventType) {
-                case 'card.created':
-                    return {
-                        card_id: cardId,
-                        column_id: columnId,
-                        title: message || "New Card",
-                        description: "Created via WebSocket test",
-                        position: 0
-                    };
-                case 'card.updated':
-                    return {
-                        card_id: cardId,
-                        title: message || "Updated Card",
-                        description: "Updated via WebSocket test"
-                    };
-                case 'card.deleted':
-                    return {
-                        card_id: cardId
-                    };
-                case 'card.moved':
-                    return {
-                        card_id: cardId,
-                        from_column_id: columnId,
-                        to_column_id: columnId + 1,
-                        new_position: 1
-                    };
-                case 'column.created':
-                    return {
-                        column_id: columnId,
-                        title: message || "New Column",
-                        position: 0
-                    };
-                case 'column.updated':
-                    return {
-                        column_id: columnId,
-                        title: message || "Updated Column"
-                    };
-                case 'board.updated':
-                    return {
-                        board_id: 1,
-                        title: message || "Updated Board"
-                    };
-                default:
-                    return { message: message };
-            }
-        }
-        
-        function connect() {
-            const url = wsUrlInput.value;
-            
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                addMessage('Already connected!', 'error');
-                return;
-            }
-            
-            addMessage(`Attempting to connect to: ${url}`, 'info');
-            updateStatus('🔄 Connecting...', 'connecting');
-            
-            socket = new WebSocket(url);
-            
-            socket.onopen = function(event) {
-                addMessage('✅ WebSocket connection established!', 'received');
-                updateStatus('✅ Connected', 'connected');
-                connectBtn.disabled = true;
-                disconnectBtn.disabled = false;
-                sendBtn.disabled = false;
-                messageInput.disabled = false;
-                messageInput.focus();
-                
-                // Send a test board event
-                const testMessage = {
-                    type: "card.created",
-                    payload: {
-                        card_id: Math.floor(Math.random() * 1000),
-                        column_id: 3,
-                        title: "Add WebSocket support",
-                        description: "Connection test card",
-                        position: 0
-                    }
-                };
-                socket.send(JSON.stringify(testMessage));
-                addMessage(`📤 Sent connection test: ${JSON.stringify(testMessage, null, 2)}`, 'sent');
-            };
-            
-            socket.onmessage = function(event) {
-                try {
-                    const data = JSON.parse(event.data);
-                    addMessage(`📥 Received: ${JSON.stringify(data, null, 2)}`, 'received');
-                } catch (e) {
-                    addMessage(`📥 Received: ${event.data}`, 'received');
-                }
-            };
-            
-            socket.onclose = function(event) {
-                addMessage(`❌ Connection closed. Code: ${event.code}, Reason: ${event.reason || 'No reason provided'}`, 'error');
-                updateStatus('❌ Disconnected', 'disconnected');
-                connectBtn.disabled = false;
-                disconnectBtn.disabled = true;
-                sendBtn.disabled = true;
-                messageInput.disabled = true;
-            };
-            
-            socket.onerror = function(error) {
-                addMessage(`🚫 WebSocket error: ${error}`, 'error');
-                console.error('WebSocket error:', error);
-            };
-        }
-        
-        function disconnect() {
-            if (socket) {
-                socket.close();
-                addMessage('Disconnecting...', 'info');
-            }
-        }
-        
-        function sendMessage() {
-            const message = messageInput.value.trim();
-            const eventType = eventTypeSelect.value;
-            
-            if (!message && ['card.created', 'card.updated', 'column.created', 'column.updated', 'board.updated'].includes(eventType)) {
-                addMessage('Please enter a title or description for this event!', 'error');
-                return;
-            }
-            
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                const messageObj = {
-                    type: eventType,
-                    payload: generateEventPayload(eventType, message)
-                };
-                
-                socket.send(JSON.stringify(messageObj));
-                addMessage(`📤 Sent ${eventType}: ${JSON.stringify(messageObj, null, 2)}`, 'sent');
-                messageInput.value = '';
-            } else {
-                addMessage('Not connected to WebSocket!', 'error');
-            }
-        }
-        
-        function clearMessages() {
-            messagesDiv.innerHTML = '';
-        }
-        
-        // Allow Enter key to send messages
-        messageInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                sendMessage();
-            }
-        });
-        
-        // Update placeholder text based on event type
-        eventTypeSelect.addEventListener('change', function() {
-            const eventType = this.value;
-            switch(eventType) {
-                case 'card.created':
-                case 'card.updated':
-                    messageInput.placeholder = "Enter card title...";
-                    break;
-                case 'column.created':
-                case 'column.updated':
-                    messageInput.placeholder = "Enter column title...";
-                    break;
-                case 'board.updated':
-                    messageInput.placeholder = "Enter board title...";
-                    break;
-                case 'card.deleted':
-                case 'card.moved':
-                    messageInput.placeholder = "No input needed for this event";
-                    break;
-                default:
-                    messageInput.placeholder = "Enter event data...";
-            }
-        });
-        
-        // Auto-focus URL input
-        wsUrlInput.focus();
-    </script>
-</body>
-</html> -->
+ -->
