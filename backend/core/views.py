@@ -2,6 +2,9 @@ from rest_framework import viewsets, permissions, generics
 from .models import Card, Column, Board, Project, Team, TeamMembership
 from .serializers import CardSerializer, ColumnSerializer, BoardSerializer, ProjectSerializer, TeamSerializer, RegisterSerializer, TeamMembershipSerializer
 from rest_framework.response import Response
+from rest_framework.decorators import api_view, permission_classes
+from django.contrib.auth import authenticate
+from rest_framework.authtoken.models import Token
 
 class CardViewSet(viewsets.ModelViewSet):
     queryset = Card.objects.all()
